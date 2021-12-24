@@ -14,109 +14,19 @@ import glob
 from PIL import Image
 from torchvision.io import read_image
 
+import models.dann
+import data.HGMDataset
+import data.transforms.HG<_transforms
+
+
 MODEL_NAME = 'DANN'
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-transform = transforms.Compose([
-    transforms.Grayscale(1),
-    transforms.Resize((28,28)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5],
-                         std=[0.5])
-])
-
-class HGM(torch.utils.data.Dataset):
-    def __init__(self, annotations_file, img_dir, transform=None, target_transform=None):
-        self.img_labels = pd.read_csv(annotations_file)
-        self.img_dir = img_dir
-        self.transform = transform
-        self.target_transform = target_transform
-
-    def __len__(self):
-        return len(self.img_labels)
-
-    def __getitem__(self, idx):
-        img_path = os.path.join(self.img_dir, self.img_labels.iloc[idx, 0])
-        image =  Image.open(img_path).convert('RGB')
-        label = int(self.img_labels.iloc[idx, 1])
-        width,height = image.size
-        # print(width,height)
-        if self.transform:
-
-            image = self.transform(image)
-        if self.target_transform:
-            label = self.target_transform(label)
-        # print(image.size())
-        return image, label
 
 img_dir='/content'
 cams=['Left','Right','below',"Front"]
 dataset_loaders=[HGM(i+'_CAM.csv',img_dir,transform) for i in cams]
 loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=16,num_workers=1,drop_last=True) for train_dataset in dataset_loaders]
 
-class Discriminator(nn.Module):
-    """
-        Simple Discriminator w/ MLP
-    """
-    def __init__(self, input_size=512, num_classes=1):
-        super(Discriminator, self).__init__()
-        self.layer = nn.Sequential(
-            nn.Linear(input_size, 256),
-            nn.LeakyReLU(0.2),
-            nn.Linear(256, 128),
-            nn.LeakyReLU(0.2),
-            nn.Linear(128, num_classes),
-            nn.Sigmoid(),
-        )
-    
-    def forward(self, h):
-        y = self.layer(h)
-        return y
-
-class FeatureExtractor(nn.Module):
-    """
-        Feature Extractor
-    """
-    def __init__(self, in_channel=1, hidden_dims=512):
-        super(FeatureExtractor, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channel, 64, 3, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 128, 3, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(128, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, 256, 3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(256, hidden_dims, 3, padding=1),
-            nn.BatchNorm2d(hidden_dims),
-            nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d((1,1)),
-        )
-        
-    def forward(self, x):
-        h = self.conv(x).squeeze() # (N, hidden_dims)
-        return h
-
-class Classifier(nn.Module):
-    """
-        Classifier
-    """
-    def __init__(self, input_size=512, num_classes=26):
-        super(Classifier, self).__init__()
-        self.layer = nn.Sequential(
-            nn.Linear(input_size, 256),
-            nn.ReLU(inplace=True),
-            nn.Linear(256, num_classes),
-        )
-        
-    def forward(self, h):
-        c = self.layer(h)
-        return c
 
 F = FeatureExtractor().to(DEVICE)
 C = Classifier().to(DEVICE)
