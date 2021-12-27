@@ -14,23 +14,35 @@ import glob
 from PIL import Image
 from torchvision.io import read_image
 
-import models.dann
-import data.HGMDataset
-import data.transforms.HG<_transforms
+import models.dann as dann
+from data.HGMDataset import HGM 
+from data.transforms.HGM_transforms import transform
+
+def get_lambda(epoch, max_epoch):
+    p = epoch / max_epoch
+    return 2. / (1+np.exp(-10.*p)) - 1.
+def sample_view(step, n_batches):
+    global view2_set
+    if step % n_batches == 0:
+        view2_set = iter(loader[1])
+    return view2_set.next()
 
 
+max_epoch=10
 MODEL_NAME = 'DANN'
+img_dir='data'
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-img_dir='/content'
+
 cams=['Left','Right','below',"Front"]
+transform=transform()
 dataset_loaders=[HGM(i+'_CAM.csv',img_dir,transform) for i in cams]
-loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=16,num_workers=1,drop_last=True) for train_dataset in dataset_loaders]
+loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=16,num_workers=16,drop_last=True) for train_dataset in dataset_loaders]
 
 
-F = FeatureExtractor().to(DEVICE)
-C = Classifier().to(DEVICE)
-D = Discriminator().to(DEVICE)
+F = dann.FeatureExtractor().to(DEVICE)
+C =dann.Classifier().to(DEVICE)
+D = dann.Discriminator().to(DEVICE)
 
 F_opt = torch.optim.Adam(F.parameters())
 C_opt = torch.optim.Adam(C.parameters())
@@ -39,7 +51,7 @@ D_opt = torch.optim.Adam(D.parameters())
 bce = nn.BCELoss()
 xe = nn.CrossEntropyLoss()
 
-max_epoch = 50
+
 step = 0
 n_critic = 1 # for training more k steps about Discriminator
 n_batches = len(loader[0])//16
@@ -47,45 +59,48 @@ n_batches = len(loader[0])//16
 
 batch_size=16
 
-D_src = torch.ones(batch_size, 1).to(DEVICE) # Discriminator Label to real
-D_tgt = torch.zeros(batch_size, 1).to(DEVICE) # Discriminator Label to fake
-D_labels = torch.cat([D_src, D_tgt], dim=0)
+D_src = torch.ones(batch_size, 1).to(DEVICE) # Discriminator Label to real (16)-->1
+D_tgt = torch.zeros(batch_size, 1).to(DEVICE) # Discriminator Label to fake(16)-->0
+D_labels = torch.cat([D_src, D_tgt], dim=0) #(32,1)
 
-def get_lambda(epoch, max_epoch):
-    p = epoch / max_epoch
-    return 2. / (1+np.exp(-10.*p)) - 1.
 
-view2_set = iter(loader[1])
+view2_set = iter(loader[1]) #(16,28,28)
 
-def sample_view(step, n_batches):
-    global view2_set
-    if step % n_batches == 0:
-        view2_set = iter(loader[1])
-    return view2_set.next()
+
 
 """# Custom Image Dataset """
 
 ll_c=[]
 ll_d=[]
 acc_lst=[]
-max_epoch=10
-for epoch in range(1, 50+1):
-    for idx, (src_images, labels) in enumerate(loader[0]):
-        tgt_images, _ = sample_view(step, n_batches)
+
+for epoch in range(1, max_epoch+1):
+    for idx, (src_images, labels) in enumerate(loader[0]): #(16,1,28,28) and (16)
+        # print(src_images.size(),labels.size())
+        # exit(0)
+        tgt_images, _ = sample_view(step, n_batches)  #16,1,28,28
+        # print(tgt_images.size())
         # Training Discriminator
         src, labels, tgt = src_images.to(DEVICE), labels.to(DEVICE), tgt_images.to(DEVICE)
         
-        x = torch.cat([src, tgt], dim=0)
+        x = torch.cat([src, tgt], dim=0) 
+        # print(x.size())
+        # exit(0)
         h = F(x)
+        # print(h.size())
+        # exit(0)
         y = D(h.detach())
-        
+        # print(y.size())
+        # exit(0)
         Ld = bce(y, D_labels)
+        # print(Ld)
+        # exit(0)
         D.zero_grad()
         Ld.backward()
         D_opt.step()
         
         
-        c = C(h[:batch_size])
+        c = C(h[:batch_size]) #32,512
         y = D(h)
         Lc = xe(c, labels)
         Ld = bce(y, D_labels)
@@ -115,8 +130,8 @@ for epoch in range(1, 50+1):
                 corrects = torch.zeros(1).to(DEVICE)
                 for idx, (src, labels) in enumerate(loader[0]):
                     src, labels = src.to(DEVICE), labels.to(DEVICE)
-                    c = C(F(src))
-                    _, preds = torch.max(c, 1)
+                    c = C(F(src)) #(16,26)
+                    _, preds = torch.max(c, 1) #16
                     corrects += (preds == labels).sum()
                 acc = corrects.item() / len(loader[0].dataset)
                 print('***** Eval Result: {:.4f}, Step: {}'.format(acc, step))

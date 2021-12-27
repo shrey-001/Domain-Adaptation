@@ -1,5 +1,5 @@
 import torch
-import torch as nn
+from torch import nn
 
 class Discriminator(nn.Module):
     """
