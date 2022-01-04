@@ -9,7 +9,8 @@
 #SBATCH --time=2-23:00:00            
 #SBATCH --job-name=domain_adaptation 
 
-#SBATCH --output=out_files/domain_adaptation_1.out
+#SBATCH --output=out_files/domain_adaptation_3.out
 nvidia-smi
-conda activate dhenv
+source activate dhenv
+pip install torch==1.8.1+cu101 torchvision==0.9.1+cu101 torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
 python train.py

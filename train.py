@@ -32,7 +32,7 @@ def sample_view(step, n_batches):
     return view2_set.next()
 
 
-max_epoch=100
+max_epoch=300
 MODEL_NAME = 'DANN'
 img_dir='data/csv_list/seed-137/'
 DEVICE = torch.device("cuda")
@@ -98,6 +98,7 @@ for epoch in range(1, max_epoch+1):
     accuracy_dis=0
     corrects_t = torch.zeros(1).to(DEVICE)
     for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
+        print(len(train_loader[0].dataset))
         #print(src_images.size(),labels.size())
         #exit(0)
         tgt_images, _ = sample_view(step, n_batches)  #16,1,28,28
@@ -174,7 +175,7 @@ for epoch in range(1, max_epoch+1):
         print('* Test Result: {:.4f}, Step: {}'.format(acc_target_test, step))
         acc_lst.append(acc_target_test)
 
-    wandb.log({"loss_discriminator":Ld,"loss_classifier":Lc,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_disriminator":accuracy_dis/len(train_loader[0].dataset),"Accuracy_source_train":corrects_t.item()/len(train_loader[0].dataset)})
+    wandb.log({"loss_discriminator":Ld,"loss_classifier":Lc,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_disriminator":accuracy_dis/len(train_loader[0]),"Accuracy_source_train":corrects_t.item()/len(train_loader[0].dataset)})
 
                 
     F.train()
