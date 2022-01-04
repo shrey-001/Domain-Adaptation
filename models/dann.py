@@ -53,7 +53,7 @@ class Classifier(nn.Module):
     """
         Classifier
     """
-    def __init__(self, input_size=512, num_classes=26):
+    def __init__(self, input_size=512, num_classes=13):
         super(Classifier, self).__init__()
         self.layer = nn.Sequential(
             nn.Linear(input_size, 256),

@@ -17,6 +17,10 @@ from torchvision.io import read_image
 import models.dann as dann
 from data.HGMDataset import HGM 
 from data.transforms.HGM_transforms import transform
+import wandb
+import gc
+gc.collect()
+torch.cuda.empty_cache()
 
 def get_lambda(epoch, max_epoch):
     p = epoch / max_epoch
@@ -24,25 +28,30 @@ def get_lambda(epoch, max_epoch):
 def sample_view(step, n_batches):
     global view2_set
     if step % n_batches == 0:
-        view2_set = iter(loader[1])
+        view2_set = iter(train_loader[1])
     return view2_set.next()
 
 
-max_epoch=10
+max_epoch=100
 MODEL_NAME = 'DANN'
-img_dir='data'
-DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-cams=['Left','Right','below',"Front"]
+img_dir='data/csv_list/seed-137/'
+DEVICE = torch.device("cuda")
+# print(torch.cuda.is_available())
+cams=['Left','Right','Below',"Front"]
+batch_size=4
 transform=transform()
-dataset_loaders=[HGM(i+'_CAM.csv',img_dir,transform) for i in cams]
-loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=16,num_workers=16,drop_last=True) for train_dataset in dataset_loaders]
+train_loaders=[HGM(i+'_CAM.csv',img_dir+'train',transform) for i in cams]
+train_loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=batch_size,num_workers=8,drop_last=True) for train_dataset in train_loaders]
+test_loaders=[HGM(i+'_CAM.csv',img_dir+'val',transform) for i in cams]
+test_loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=batch_size,num_workers=8,drop_last=True) for train_dataset in test_loaders]
+
+
 
 
 F = dann.FeatureExtractor().to(DEVICE)
 C =dann.Classifier().to(DEVICE)
 D = dann.Discriminator().to(DEVICE)
+
 
 F_opt = torch.optim.Adam(F.parameters())
 C_opt = torch.optim.Adam(C.parameters())
@@ -54,17 +63,22 @@ xe = nn.CrossEntropyLoss()
 
 step = 0
 n_critic = 1 # for training more k steps about Discriminator
-n_batches = len(loader[0])//16
+
+n_batches = len(train_loader[0])//batch_size
 # lamda = 0.01
 
-batch_size=16
+
+# wandb.login(key="1f50b56189ad0287617289acd72127489c7fe801")
+# config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":1e-3}
+# wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="base_experiment-split-80-seed-137-12-classes",config=config)
+
 
 D_src = torch.ones(batch_size, 1).to(DEVICE) # Discriminator Label to real (16)-->1
 D_tgt = torch.zeros(batch_size, 1).to(DEVICE) # Discriminator Label to fake(16)-->0
 D_labels = torch.cat([D_src, D_tgt], dim=0) #(32,1)
 
 
-view2_set = iter(loader[1]) #(16,28,28)
+view2_set = iter(train_loader[1]) #(16,28,28)
 
 
 
@@ -73,28 +87,34 @@ view2_set = iter(loader[1]) #(16,28,28)
 ll_c=[]
 ll_d=[]
 acc_lst=[]
+#wandb.define_metric("loss_discri", summary="min")
+#wandb.define_metric("loss_classi", summary="min")
+#wandb.define_metric("Accuracy_source_train", summary="max")
+#wandb.define_metric("Accuracy_target_train", summary="max")
+#wandb.define_metric("Accuracy_dis", summary="max")
 
 for epoch in range(1, max_epoch+1):
-    for idx, (src_images, labels) in enumerate(loader[0]): #(16,1,28,28) and (16)
-        # print(src_images.size(),labels.size())
-        # exit(0)
+    accuracy_dis=0
+    for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
+        #print(src_images.size(),labels.size())
+        #exit(0)
         tgt_images, _ = sample_view(step, n_batches)  #16,1,28,28
-        # print(tgt_images.size())
+        #print(tgt_images.size())
         # Training Discriminator
         src, labels, tgt = src_images.to(DEVICE), labels.to(DEVICE), tgt_images.to(DEVICE)
         
         x = torch.cat([src, tgt], dim=0) 
-        # print(x.size())
+        #print(x.size())
         # exit(0)
         h = F(x)
-        # print(h.size())
+        #print(h.size())
         # exit(0)
         y = D(h.detach())
-        # print(y.size())
+        #print(y.size())
         # exit(0)
         Ld = bce(y, D_labels)
-        # print(Ld)
-        # exit(0)
+        #print(Ld)
+        #exit(0)
         D.zero_grad()
         Ld.backward()
         D_opt.step()
@@ -102,6 +122,7 @@ for epoch in range(1, max_epoch+1):
         
         c = C(h[:batch_size]) #32,512
         y = D(h)
+        accuracy_dis+=y.mean().item()
         Lc = xe(c, labels)
         Ld = bce(y, D_labels)
         lamda = 0.1*get_lambda(epoch, max_epoch)
@@ -116,37 +137,42 @@ for epoch in range(1, max_epoch+1):
         
         C_opt.step()
         F_opt.step()
+        step=step+1
         
-        if step % 100 == 0:
-            dt = datetime.datetime.now().strftime('%H:%M:%S')
-            print('Epoch: {}/{}, Step: {}, D Loss: {:.4f}, C Loss: {:.4f}, lambda: {:.4f} ---- {}'.format(epoch, max_epoch, step, Ld.item(), Lc.item(), lamda, dt))
-            ll_c.append(Lc)
-            ll_d.append(Ld)
+    
+    dt = datetime.datetime.now().strftime('%H:%M:%S')
+    print('Epoch: {}/{}, Step: {}, D Loss: {:.4f}, C Loss: {:.4f}, lambda: {:.4f} ---- {}'.format(epoch, max_epoch, step, Ld.item(), Lc.item(), lamda, dt))
+    ll_c.append(Lc)
+    ll_d.append(Ld)
+            
         
-        if step % 300 == 0:
-            F.eval()
-            C.eval()
-            with torch.no_grad():
-                corrects = torch.zeros(1).to(DEVICE)
-                for idx, (src, labels) in enumerate(loader[0]):
-                    src, labels = src.to(DEVICE), labels.to(DEVICE)
-                    c = C(F(src)) #(16,26)
-                    _, preds = torch.max(c, 1) #16
-                    corrects += (preds == labels).sum()
-                acc = corrects.item() / len(loader[0].dataset)
-                print('***** Eval Result: {:.4f}, Step: {}'.format(acc, step))
-                
-                corrects = torch.zeros(1).to(DEVICE)
-                for idx, (tgt, labels) in enumerate(loader[1]):
-                    tgt, labels = tgt.to(DEVICE), labels.to(DEVICE)
-                    c = C(F(tgt))
-                    _, preds = torch.max(c, 1)
-                    corrects += (preds == labels).sum()
-                acc = corrects.item() / len(loader[1].dataset)
-                print('***** Test Result: {:.4f}, Step: {}'.format(acc, step))
-                acc_lst.append(acc)
-                
-            F.train()
-            C.train()
-        step += 1
+        
+    F.eval()
+    C.eval()
+    D.eval()
+    with torch.no_grad():
+        corrects = torch.zeros(1).to(DEVICE)
+        for idx, (src, labels) in enumerate(test_loader[0]):
+            src, labels = src.to(DEVICE), labels.to(DEVICE)
+            c = C(F(src))
+            # print(c.size()) #(16,26)
+            _, preds = torch.max(c, 1) #16
+            corrects += (preds == labels).sum()
+        acc_source_test = corrects.item() / len(test_loader[0].dataset)
+        print('* Eval Result: {:.4f}, Step: {}'.format(acc_source_test, step))
+        corrects = torch.zeros(1).to(DEVICE)
+        for idx, (tgt, labels) in enumerate(test_loader[1]):
+            tgt, labels = tgt.to(DEVICE), labels.to(DEVICE)
+            c = C(F(tgt))
+            _, preds = torch.max(c, 1)
+            corrects += (preds == labels).sum()
+        acc_target_test = corrects.item() / len(test_loader[1].dataset)
+        print('* Test Result: {:.4f}, Step: {}'.format(acc_target_test, step))
+        acc_lst.append(acc_target_test)
 
+        #wandb.log({"loss_discri":Ld,"loss_classi":Lc,"Accuracy_source_train":acc_source_train,"Accuracy_target_train":acc_target_train,"Accuracy_dis":accuracy_dis/64})
+
+                
+    F.train()
+    D.train()
+    C.train()
