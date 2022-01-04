@@ -95,6 +95,7 @@ acc_lst=[]
 
 for epoch in range(1, max_epoch+1):
     accuracy_dis=0
+    corrects = torch.zeros(1).to(DEVICE)
     for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
         #print(src_images.size(),labels.size())
         #exit(0)
@@ -120,7 +121,9 @@ for epoch in range(1, max_epoch+1):
         D_opt.step()
         
         
-        c = C(h[:batch_size]) #32,512
+        c = C(h[:batch_size]) #16,512
+        _, preds = torch.max(c, 1) 
+        corrects += (preds == labels).sum()
         y = D(h)
         accuracy_dis+=y.mean().item()
         Lc = xe(c, labels)
@@ -141,7 +144,7 @@ for epoch in range(1, max_epoch+1):
         
     
     dt = datetime.datetime.now().strftime('%H:%M:%S')
-    print('Epoch: {}/{}, Step: {}, D Loss: {:.4f}, C Loss: {:.4f}, lambda: {:.4f} ---- {}'.format(epoch, max_epoch, step, Ld.item(), Lc.item(), lamda, dt))
+    print('Epoch: {}/{}, Step: {}, D Loss: {:.4f}, C Loss: {:.4f}, C Accuracy: {:.4f}, lambda: {:.4f} ---- {}'.format(epoch, max_epoch, step, Ld.item(), Lc.item(),corrects/corrects.item() / len(test_loader[0].dataset),lamda, dt))
     ll_c.append(Lc)
     ll_d.append(Ld)
             
