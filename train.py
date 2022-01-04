@@ -68,9 +68,9 @@ n_batches = len(train_loader[0])//batch_size
 # lamda = 0.01
 
 
-# wandb.login(key="1f50b56189ad0287617289acd72127489c7fe801")
-# config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":1e-3}
-# wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="base_experiment-split-80-seed-137-12-classes",config=config)
+wandb.login(key="1f50b56189ad0287617289acd72127489c7fe801")
+config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":1e-3}
+wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="base_experiment-split-80-seed-137-12-classes",config=config)
 
 
 D_src = torch.ones(batch_size, 1).to(DEVICE) # Discriminator Label to real (16)-->1
@@ -87,15 +87,16 @@ view2_set = iter(train_loader[1]) #(16,28,28)
 ll_c=[]
 ll_d=[]
 acc_lst=[]
-#wandb.define_metric("loss_discri", summary="min")
-#wandb.define_metric("loss_classi", summary="min")
-#wandb.define_metric("Accuracy_source_train", summary="max")
-#wandb.define_metric("Accuracy_target_train", summary="max")
-#wandb.define_metric("Accuracy_dis", summary="max")
+# wandb.define_metric("loss_discri", summary="min")
+# wandb.define_metric("loss_classi", summary="min")
+# wandb.define_metric("Accuracy_source_train", summary="max")
+# wandb.define_metric("Accuracy_target_train", summary="max")
+# wand.define_metric("Accuracy_source_test",summar)
+# wandb.define_metric("Accuracy_dis", summary="max")
 
 for epoch in range(1, max_epoch+1):
     accuracy_dis=0
-    corrects = torch.zeros(1).to(DEVICE)
+    corrects_t = torch.zeros(1).to(DEVICE)
     for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
         #print(src_images.size(),labels.size())
         #exit(0)
@@ -123,7 +124,7 @@ for epoch in range(1, max_epoch+1):
         
         c = C(h[:batch_size]) #16,512
         _, preds = torch.max(c, 1) 
-        corrects += (preds == labels).sum()
+        corrects_t += (preds == labels).sum()
         y = D(h)
         accuracy_dis+=y.mean().item()
         Lc = xe(c, labels)
@@ -144,7 +145,7 @@ for epoch in range(1, max_epoch+1):
         
     
     dt = datetime.datetime.now().strftime('%H:%M:%S')
-    print('Epoch: {}/{}, Step: {}, D Loss: {:.4f}, C Loss: {:.4f}, C Accuracy: {:.4f}, lambda: {:.4f} ---- {}'.format(epoch, max_epoch, step, Ld.item(), Lc.item(),corrects/corrects.item() / len(test_loader[0].dataset),lamda, dt))
+    print('Epoch: {}/{}, Step: {}, D Loss: {:.4f}, C Loss: {:.4f}, C Accuracy: {:.4f}, lambda: {:.4f} ---- {}'.format(epoch, max_epoch, step, Ld.item(), Lc.item(),corrects_t.item() / len(train_loader[0].dataset),lamda, dt))
     ll_c.append(Lc)
     ll_d.append(Ld)
             
@@ -173,7 +174,7 @@ for epoch in range(1, max_epoch+1):
         print('* Test Result: {:.4f}, Step: {}'.format(acc_target_test, step))
         acc_lst.append(acc_target_test)
 
-        #wandb.log({"loss_discri":Ld,"loss_classi":Lc,"Accuracy_source_train":acc_source_train,"Accuracy_target_train":acc_target_train,"Accuracy_dis":accuracy_dis/64})
+    wandb.log({"loss_discriminator":Ld,"loss_classifier":Lc,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_disriminator":accuracy_dis/len(train_loader[0].dataset),"Accuracy_source_train":corrects_t.item()/len(train_loader[0].dataset)})
 
                 
     F.train()
