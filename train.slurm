@@ -7,9 +7,9 @@
 #SBATCH --gres=gpu:1 
 
 #SBATCH --time=2-23:00:00            
-#SBATCH --job-name=domain_adaptation 
+#SBATCH --job-name=simple-dmy
 
-#SBATCH --output=out_files/domain_adaptation_3.out
-nvidia-smi
-source activate dhenv
+#SBATCH --output=out_files/simple-dmy.out
+
+source activate da
 python train.py
