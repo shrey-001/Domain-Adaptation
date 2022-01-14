@@ -14,7 +14,7 @@ import glob
 from PIL import Image
 from torchvision.io import read_image
 
-import models.dann as dann
+import models.dann_resnet as dann
 from data.HGMDataset import HGM 
 from data.transforms.HGM_transforms import transform
 import wandb
@@ -98,7 +98,7 @@ for epoch in range(1, max_epoch+1):
     accuracy_dis=0
     corrects_t = torch.zeros(1).to(DEVICE)
     for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
-        print(len(train_loader[0].dataset))
+        #print(len(train_loader[0].dataset))
         #print(src_images.size(),labels.size())
         #exit(0)
         tgt_images, _ = sample_view(step, n_batches)  #16,1,28,28
