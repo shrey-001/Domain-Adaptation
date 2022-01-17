@@ -7,9 +7,9 @@
 #SBATCH --gres=gpu:1 
 
 #SBATCH --time=2-23:00:00            
-#SBATCH --job-name=simple-dmy
+#SBATCH --job-name=mobile_net 
 
-#SBATCH --output=out_files/simple-dmy.out
-
-source activate da
+#SBATCH --output=out_files/mobile_net_simple_classification.out
+nvidia-smi
+conda activate dhenv
 python train.py

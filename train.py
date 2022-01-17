@@ -13,6 +13,7 @@ import numpy as np
 import glob
 from PIL import Image
 from torchvision.io import read_image
+from models.mobilenetv2 import mobilenet_v2
 
 import models.dann as dann
 from data.HGMDataset import HGM 
@@ -35,14 +36,14 @@ def sample_view(step, n_batches):
 n_critic = 1
 max_epoch=300
 MODEL_NAME = 'DANN'
-img_dir='data/csv_list/seed-137/'
+img_dir='../csv_list/seed-137/'
 DEVICE = torch.device("cuda")
 # print(torch.cuda.is_available())
 cams=['Left','Right','Below',"Front"]
 batch_size=4
 
 
-transform=transform_dummy()
+transform=transform_resnet()
 
 
 
@@ -57,7 +58,83 @@ config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":1e-3}
 #simple - dummy
 #simple- resnet
 #dann -resnet
+def mobilenet_simple_cla():
+    wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-mobile",config=config)
+    model=mobilenet_v2(pretrained=False,progress=True,num_classes=13).to(DEVICE)
+    model_opt = torch.optim.Adam(model.parameters())
+    xe = nn.CrossEntropyLoss()
+    step = 0
 
+    n_batches = len(train_loader[0])//batch_size
+
+    view2_set = iter(train_loader[1])
+    for epoch in range(1, max_epoch+1):
+
+        corrects_t = torch.zeros(1).to(DEVICE)
+        for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
+            
+            src, labels = src_images.to(DEVICE), labels.to(DEVICE)
+            
+        
+            c = model(src)
+            
+            _, preds = torch.max(c, 1) 
+            corrects_t += (preds == labels).sum()
+        
+            Lc = xe(c, labels)
+        
+                
+            model.zero_grad()
+           
+            
+            Lc.backward()
+            
+            model_opt.step()
+    
+            step=step+1
+            
+        
+        dt = datetime.datetime.now().strftime('%H:%M:%S')
+        print('Epoch: {}/{}, Step: {}, C Loss: {:.4f}, C Accuracy: {:.4f}, time: {}'.format(epoch, max_epoch, step, Lc.item(),corrects_t.item() / len(train_loader[0].dataset), dt))
+        
+                
+        model.eval()
+        
+        with torch.no_grad():
+            corrects = torch.zeros(1).to(DEVICE)
+            for idx, (src, labels) in enumerate(test_loader[0]):
+                src, labels = src.to(DEVICE), labels.to(DEVICE)
+                c = model(src)
+                # print(c.size()) #(16,26)
+                _, preds = torch.max(c, 1) #16
+                corrects += (preds == labels).sum()
+            acc_source_test = corrects.item() / len(test_loader[0].dataset)
+            print('* Source_test: {:.4f}, Step: {}'.format(acc_source_test, step))
+            corrects = torch.zeros(1).to(DEVICE)
+            for idx, (tgt, labels) in enumerate(test_loader[1]):
+                tgt, labels = tgt.to(DEVICE), labels.to(DEVICE)
+                c = model(tgt)
+                _, preds = torch.max(c, 1)
+                corrects += (preds == labels).sum()
+            acc_target_test = corrects.item() / len(test_loader[1].dataset)
+            print('* Target_Test: {:.4f}, Step: {}'.format(acc_target_test, step))
+            #acc_lst.append(acc_target_test)
+
+            for idx, (tgt, labels) in enumerate(train_loader[1]):
+                tgt, labels = tgt.to(DEVICE), labels.to(DEVICE)
+                c = model(tgt)
+                _, preds = torch.max(c, 1)
+                corrects += (preds == labels).sum()
+            acc_target_train = corrects.item() / len(train_loader[1].dataset)
+            print('* Target_Train Result: {:.4f}, Step: {}'.format(acc_target_train, step))
+            #acc_lst.append(acc_target_test)
+
+        
+        wandb.log({"loss_classifier":Lc,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_source_train":corrects_t.item()/len(train_loader[0].dataset),"Accuracy_target_train":acc_target_train})
+
+                    
+        model.train()
+        
 def simple_classification():
     wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-dummy",config=config)
 
@@ -275,4 +352,5 @@ def DANN():
         D.train()
         C.train()
 
-simple_classification()
+# simple_classification()
+mobilenet_simple_cla()
