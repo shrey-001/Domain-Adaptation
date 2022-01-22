@@ -192,11 +192,15 @@ def mobilenet_v2(pretrained: bool = False, progress: bool = True, **kwargs: Any)
         pretrained (bool): If True, returns a model pre-trained on ImageNet
         progress (bool): If True, displays a progress bar of the download to stderr
     """
-    model = MobileNetV2(**kwargs)
+    if not pretrained:
+        model = MobileNetV2(**kwargs)
     if pretrained:
+        model = MobileNetV2()
+        print(model)
         state_dict = load_state_dict_from_url(model_urls['mobilenet_v2'],
                                               progress=progress)
         model.load_state_dict(state_dict)
+        model.classifier=nn.Sequential(nn.Dropout(0.2),nn.Linear(1280, kwargs['num_classes']))
     return model
 
 

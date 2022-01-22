@@ -7,17 +7,20 @@ from torchvision import transforms
 import numpy as np
 import datetime
 import os, sys
+import shutil
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, random_split
 import pandas as pd
 import numpy as np
 import glob
 from PIL import Image
 from torchvision.io import read_image
+import torch.optim as optim
+from utils import AverageMeter, accuracy
 from models.mobilenetv2 import mobilenet_v2
 
 import models.dann as dann
 from data.HGMDataset import HGM 
-from data.transforms.HGM_transforms import transform_resnet,transform_dummy
+from data.transforms.HGM_transforms import transform_resnet,transform_dummy, transform_test
 from data.transforms.simple_transforms import transform
 import wandb
 import gc
@@ -40,16 +43,17 @@ img_dir='../csv_list/seed-137/'
 DEVICE = torch.device("cuda")
 # print(torch.cuda.is_available())
 cams=['Left','Right','Below',"Front"]
-batch_size=4
+batch_size=16
 
 
 transform=transform_resnet()
+transform_te=transform_test()
 
 
 
 train_loaders=[HGM(i+'_CAM.csv',img_dir+'train',transform) for i in cams]
 train_loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=batch_size,num_workers=8,drop_last=True) for train_dataset in train_loaders]
-test_loaders=[HGM(i+'_CAM.csv',img_dir+'val',transform) for i in cams]
+test_loaders=[HGM(i+'_CAM.csv',img_dir+'val',transform_te) for i in cams]
 test_loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=batch_size,num_workers=8,drop_last=True) for train_dataset in test_loaders]
 
 wandb.login(key="1f50b56189ad0287617289acd72127489c7fe801")
@@ -58,17 +62,42 @@ config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":1e-3}
 #simple - dummy
 #simple- resnet
 #dann -resnet
+def save_checkpoint(state, is_best, checkpoint):
+    filename = f'checkpoint.pth.tar'
+    filepath = os.path.join(checkpoint, filename)
+    torch.save(state, filepath)
+    if is_best:
+        shutil.copyfile(filepath, os.path.join(checkpoint, f'model_best.pth.tar'))
+
+
+def num_parameters(model):
+    for s,p in model.named_parameters():
+             print(s,':',p.numel())
+    print("Total Parameters:",sum(p.numel() for p in model.parameters()))
+    print("Trainable Parameters:",sum(p.numel() for p in model.parameters() if p.requires_grad))
+
 def mobilenet_simple_cla():
-    wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-mobile",config=config)
-    model=mobilenet_v2(pretrained=False,progress=True,num_classes=13).to(DEVICE)
+    base='/raid/dhruv_g_ch/saved_models'
+    model_out='mobilenet_True_Augumented'
+    out_dir=os.path.join(base,model_out)
+    os.makedirs(out_dir, exist_ok=True)
+
+    wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-mobile2",config=config)
+    model=mobilenet_v2(pretrained=True,progress=True,num_classes=13).to(DEVICE)
+    num_parameters(model)
     model_opt = torch.optim.Adam(model.parameters())
+    scheduler = optim.lr_scheduler.ReduceLROnPlateau(model_opt,mode='min', factor=0.1, patience=10)
     xe = nn.CrossEntropyLoss()
     step = 0
+    best_acc=0
 
     n_batches = len(train_loader[0])//batch_size
 
     view2_set = iter(train_loader[1])
+    
     for epoch in range(1, max_epoch+1):
+        losses_source_train=AverageMeter()
+        losses_source_test=AverageMeter()
 
         corrects_t = torch.zeros(1).to(DEVICE)
         for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
@@ -82,6 +111,7 @@ def mobilenet_simple_cla():
             corrects_t += (preds == labels).sum()
         
             Lc = xe(c, labels)
+            losses_source_train.update(Lc.item())
         
                 
             model.zero_grad()
@@ -95,7 +125,7 @@ def mobilenet_simple_cla():
             
         
         dt = datetime.datetime.now().strftime('%H:%M:%S')
-        print('Epoch: {}/{}, Step: {}, C Loss: {:.4f}, C Accuracy: {:.4f}, time: {}'.format(epoch, max_epoch, step, Lc.item(),corrects_t.item() / len(train_loader[0].dataset), dt))
+        print('Epoch: {}/{}, Step: {}, C Loss: {:.4f}, C Accuracy: {:.4f}, time: {}'.format(epoch, max_epoch, step, losses_source_train.avg,corrects_t.item() / len(train_loader[0].dataset), dt))
         
                 
         model.eval()
@@ -103,8 +133,12 @@ def mobilenet_simple_cla():
         with torch.no_grad():
             corrects = torch.zeros(1).to(DEVICE)
             for idx, (src, labels) in enumerate(test_loader[0]):
+
                 src, labels = src.to(DEVICE), labels.to(DEVICE)
+                
                 c = model(src)
+                Lc = xe(c, labels)
+                losses_source_test.update(Lc.item())
                 # print(c.size()) #(16,26)
                 _, preds = torch.max(c, 1) #16
                 corrects += (preds == labels).sum()
@@ -128,9 +162,22 @@ def mobilenet_simple_cla():
             acc_target_train = corrects.item() / len(train_loader[1].dataset)
             print('* Target_Train Result: {:.4f}, Step: {}'.format(acc_target_train, step))
             #acc_lst.append(acc_target_test)
-
-        
-        wandb.log({"loss_classifier":Lc,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_source_train":corrects_t.item()/len(train_loader[0].dataset),"Accuracy_target_train":acc_target_train})
+        scheduler.step(losses_source_test.avg)
+            
+        is_best = acc_source_test > best_acc
+        best_acc = max(acc_source_test, best_acc)
+        model_to_save = model
+        state_dict_to_save = model_to_save.state_dict()
+        save_checkpoint({
+                'epoch': epoch + 1,
+                'state_dict': state_dict_to_save,
+                'acc': acc_source_test,
+                'best_acc': best_acc,
+                'optimizer': model_opt.state_dict(),
+                'scheduler': scheduler.state_dict(),
+            }, is_best, out_dir)
+    
+        wandb.log({"loss_classifier":losses_source_train.avg,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_source_train":corrects_t.item()/len(train_loader[0].dataset),"Accuracy_target_train":acc_target_train})
 
                     
         model.train()
