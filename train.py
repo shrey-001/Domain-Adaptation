@@ -15,7 +15,7 @@ import glob
 from PIL import Image
 from torchvision.io import read_image
 import torch.optim as optim
-from utils import AverageMeter, accuracy, num_parameters, get_lambda
+from utils import AverageMeter, accuracy, num_parameters, get_lambda, get_accuracy
 from models.mobilenetv2 import mobilenet_v2
 
 import models.dann as dann
@@ -49,11 +49,14 @@ train_dir = data_dir / 'seed-137/train'
 val_dir = data_dir / 'seed-137/val'
 MODEL_NAME = 'DANN'
 cams=['Left_CAM.csv','Right_CAM.csv','Below_CAM.csv',"Front_CAM.csv"]
+"""
 
+
+"""
 
 ############        VARIABLE        ########################    
 batch_size=16
-max_epoch=300
+max_epoch=1
 lr=1e-3
 num_classes=13
 model_out='mobilenet_True_Augumented'
@@ -68,7 +71,7 @@ DEVICE = torch.device("cuda")
 
 train_loaders, test_loaders = get_dataloaders(cams[0],train_dir,val_dir,train_transform=transform_train,val_transform=transform_test) 
 target_train, target_test = get_dataloaders(cams[1],train_dir,val_dir,train_transform=transform_test,val_transform=transform_test)
-exit()
+
 
 wandb.login(key=wandb_key)
 config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":lr}
@@ -89,7 +92,8 @@ def mobilenet_simple_cla():
     os.makedirs(out_dir, exist_ok=True)
 
     wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-mobile2",config=config)
-    model=mobilenet_v2(pretrained=True,progress=True,num_classes=13).to(DEVICE)
+
+    model=mobilenet_v2(pretrained=True,progress=True,num_classes=num_classes).to(DEVICE)
     num_parameters(model)
     model_opt = torch.optim.Adam(model.parameters())
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(model_opt,mode='min', factor=0.1, patience=10)
@@ -97,31 +101,27 @@ def mobilenet_simple_cla():
     step = 0
     best_acc=0
 
-    n_batches = len(train_loader[0])//batch_size
+    n_batches = len(train_loaders)//batch_size
 
-    view2_set = iter(train_loader[1])
+    view2_set = iter(target_train)
     
     for epoch in range(1, max_epoch+1):
         losses_source_train=AverageMeter()
         losses_source_test=AverageMeter()
 
         corrects_t = torch.zeros(1).to(DEVICE)
-        for idx, (src_images, labels) in enumerate(train_loader[0]): #(16,1,28,28) and (16)
+        for idx, (src_images, labels) in enumerate(train_loaders): #(16,1,28,28) and (16)
             
             src, labels = src_images.to(DEVICE), labels.to(DEVICE)
-            
-        
             c = model(src)
-            
+
             _, preds = torch.max(c, 1) 
             corrects_t += (preds == labels).sum()
         
             Lc = xe(c, labels)
             losses_source_train.update(Lc.item())
-        
-                
+            
             model.zero_grad()
-           
             
             Lc.backward()
             
@@ -131,14 +131,21 @@ def mobilenet_simple_cla():
             
         
         dt = datetime.datetime.now().strftime('%H:%M:%S')
-        print('Epoch: {}/{}, Step: {}, C Loss: {:.4f}, C Accuracy: {:.4f}, time: {}'.format(epoch, max_epoch, step, losses_source_train.avg,corrects_t.item() / len(train_loader[0].dataset), dt))
+        print('Epoch: {}/{}, Step: {}, C Loss: {:.4f}, C Accuracy: {:.4f}, time: {}'.format(epoch, max_epoch, step, losses_source_train.avg,corrects_t.item() / len(train_loaders.dataset), dt))
         
                 
         model.eval()
         
         with torch.no_grad():
-            corrects = torch.zeros(1).to(DEVICE)
-            for idx, (src, labels) in enumerate(test_loader[0]):
+            accuracy_1 = get_accuracy(model, test_loaders)
+            print(accuracy_1)
+            accuracy_2 = get_accuracy(model, target_test)
+            print(accuracy_2)
+            accuracy_3 = get_accuracy(model, target_train)
+            print(accuracy_3)
+
+            corrects_1 = torch.zeros(1).to(DEVICE)
+            for idx, (src, labels) in enumerate(test_loaders):
 
                 src, labels = src.to(DEVICE), labels.to(DEVICE)
                 
@@ -147,43 +154,48 @@ def mobilenet_simple_cla():
                 losses_source_test.update(Lc.item())
                 # print(c.size()) #(16,26)
                 _, preds = torch.max(c, 1) #16
-                corrects += (preds == labels).sum()
-            acc_source_test = corrects.item() / len(test_loader[0].dataset)
+                corrects_1 += (preds == labels).sum()
+            acc_source_test = corrects_1.item() / len(test_loaders.dataset)
+            print(corrects_1.item(),len(test_loaders.dataset))
             print('* Source_test: {:.4f}, Step: {}'.format(acc_source_test, step))
-            corrects = torch.zeros(1).to(DEVICE)
-            for idx, (tgt, labels) in enumerate(test_loader[1]):
-                tgt, labels = tgt.to(DEVICE), labels.to(DEVICE)
-                c = model(tgt)
-                _, preds = torch.max(c, 1)
-                corrects += (preds == labels).sum()
-            acc_target_test = corrects.item() / len(test_loader[1].dataset)
-            print('* Target_Test: {:.4f}, Step: {}'.format(acc_target_test, step))
-            #acc_lst.append(acc_target_test)
 
-            for idx, (tgt, labels) in enumerate(train_loader[1]):
+            corrects_2 = torch.zeros(1).to(DEVICE)
+            for idx, (tgt, labels) in enumerate(target_test):
                 tgt, labels = tgt.to(DEVICE), labels.to(DEVICE)
                 c = model(tgt)
                 _, preds = torch.max(c, 1)
-                corrects += (preds == labels).sum()
-            acc_target_train = corrects.item() / len(train_loader[1].dataset)
+                corrects_2 += (preds == labels).sum()
+            acc_target_test = corrects_2.item() / len(target_test.dataset)
+            print(corrects_2.item(),len(test_loaders.dataset))
+            print('* Target_Test: {:.4f}, Step: {}'.format(acc_target_test, step))
+
+            #acc_lst.append(acc_target_test)
+            corrects_3 = torch.zeros(1).to(DEVICE)
+            for idx, (tgt, labels) in enumerate(target_train):
+                tgt, labels = tgt.to(DEVICE), labels.to(DEVICE)
+                c = model(tgt)
+                _, preds = torch.max(c, 1)
+                corrects_3 += (preds == labels).sum()
+            acc_target_train = corrects_3.item() / len(target_train.dataset)
+            print(corrects_3.item(),len(target_train.dataset))
             print('* Target_Train Result: {:.4f}, Step: {}'.format(acc_target_train, step))
             #acc_lst.append(acc_target_test)
         scheduler.step(losses_source_test.avg)
             
-        is_best = acc_source_test > best_acc
-        best_acc = max(acc_source_test, best_acc)
-        model_to_save = model
-        state_dict_to_save = model_to_save.state_dict()
-        save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': state_dict_to_save,
-                'acc': acc_source_test,
-                'best_acc': best_acc,
-                'optimizer': model_opt.state_dict(),
-                'scheduler': scheduler.state_dict(),
-            }, is_best, out_dir)
+        # is_best = acc_source_test > best_acc
+        # best_acc = max(acc_source_test, best_acc)
+        # model_to_save = model
+        # state_dict_to_save = model_to_save.state_dict()
+        # save_checkpoint({
+        #         'epoch': epoch + 1,
+        #         'state_dict': state_dict_to_save,
+        #         'acc': acc_source_test,
+        #         'best_acc': best_acc,
+        #         'optimizer': model_opt.state_dict(),
+        #         'scheduler': scheduler.state_dict(),
+        #     }, is_best, out_dir)
     
-        wandb.log({"loss_classifier":losses_source_train.avg,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_source_train":corrects_t.item()/len(train_loader[0].dataset),"Accuracy_target_train":acc_target_train})
+        # wandb.log({"loss_classifier":losses_source_train.avg,"Accuracy_source_test":acc_source_test,"Accuracy_target_test":acc_target_test,"Accuracy_source_train":corrects_t.item()/len(train_loaders.dataset),"Accuracy_target_train":acc_target_train})
 
                     
         model.train()

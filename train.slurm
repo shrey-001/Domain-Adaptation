@@ -7,10 +7,10 @@
 #SBATCH --gres=gpu:1 
 
 #SBATCH --time=2-23:00:00            
-#SBATCH --job-name=mobile_net 
+#SBATCH --job-name=test 
 
-#SBATCH --output=out_files/mobile_net_simple_classification_pretrained_augmentation_scheduler_new.out
-source activate dhenv
+#SBATCH --output=out_files/test.out
+source activate da
 nvidia-smi
 echo $CUDA_VISIBLE_DEVICES
 python train.py
