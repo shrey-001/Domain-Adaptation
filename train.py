@@ -8,56 +8,70 @@ import numpy as np
 import datetime
 import os, sys
 import shutil
-from torch.utils.data import DataLoader, RandomSampler, SequentialSampler, random_split
+from torch.utils.data import DataLoader, SequentialSampler, random_split
 import pandas as pd
 import numpy as np
 import glob
 from PIL import Image
 from torchvision.io import read_image
 import torch.optim as optim
-from utils import AverageMeter, accuracy
+from utils import AverageMeter, accuracy, num_parameters, get_lambda
 from models.mobilenetv2 import mobilenet_v2
 
 import models.dann as dann
-from data.HGMDataset import HGM 
-from data.transforms.HGM_transforms import transform_resnet,transform_dummy, transform_test
-from data.transforms.simple_transforms import transform
+from data.HGMDataset import HGM
+from data.transforms import transform_train,transform_dummy,transform_test  
+
+
 import wandb
 import gc
+
+from pathlib import Path
+
+
+from data import get_dataloaders
 gc.collect()
 torch.cuda.empty_cache()
 
-def get_lambda(epoch, max_epoch):
-    p = epoch / max_epoch
-    return 2. / (1+np.exp(-10.*p)) - 1.
+
 def sample_view(step, n_batches):
     global view2_set
     if step % n_batches == 0:
         view2_set = iter(train_loader[1])
     return view2_set.next()
-
-n_critic = 1
-max_epoch=300
+############################################################
+############        CONSTANTS      #########################
+############################################################
+wandb_key = "1f50b56189ad0287617289acd72127489c7fe801"
+base_dir: Path = Path(__file__).parents[0]
+data_dir = base_dir / 'datasets'
+train_dir = data_dir / 'seed-137/train'
+val_dir = data_dir / 'seed-137/val'
 MODEL_NAME = 'DANN'
-img_dir='../csv_list/seed-137/'
+cams=['Left_CAM.csv','Right_CAM.csv','Below_CAM.csv',"Front_CAM.csv"]
+
+
+############        VARIABLE        ########################    
+batch_size=16
+max_epoch=300
+lr=1e-3
+num_classes=13
+model_out='mobilenet_True_Augumented'
+base='/raid/shreyansh_s_ch/saved_models'
+
+
+
 DEVICE = torch.device("cuda")
 # print(torch.cuda.is_available())
-cams=['Left','Right','Below',"Front"]
-batch_size=16
-
-
-transform=transform_resnet()
-transform_te=transform_test()
 
 
 
-train_loaders=[HGM(i+'_CAM.csv',img_dir+'train',transform) for i in cams]
-train_loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=batch_size,num_workers=8,drop_last=True) for train_dataset in train_loaders]
-test_loaders=[HGM(i+'_CAM.csv',img_dir+'val',transform_te) for i in cams]
-test_loader= [DataLoader(train_dataset,sampler=RandomSampler(train_dataset),batch_size=batch_size,num_workers=8,drop_last=True) for train_dataset in test_loaders]
+train_loaders, test_loaders = get_dataloaders(cams[0],train_dir,val_dir,train_transform=transform_train,val_transform=transform_test) 
+target_train, target_test = get_dataloaders(cams[1],train_dir,val_dir,train_transform=transform_test,val_transform=transform_test)
+exit()
 
-wandb.login(key="1f50b56189ad0287617289acd72127489c7fe801")
-config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":1e-3}
+wandb.login(key=wandb_key)
+config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":lr}
 #wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="base_experiment-split-80-seed-137-12-classes",config=config)
 #simple - dummy
 #simple- resnet
@@ -69,16 +83,8 @@ def save_checkpoint(state, is_best, checkpoint):
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint, f'model_best.pth.tar'))
 
-
-def num_parameters(model):
-    for s,p in model.named_parameters():
-             print(s,':',p.numel())
-    print("Total Parameters:",sum(p.numel() for p in model.parameters()))
-    print("Trainable Parameters:",sum(p.numel() for p in model.parameters() if p.requires_grad))
-
 def mobilenet_simple_cla():
-    base='/raid/dhruv_g_ch/saved_models'
-    model_out='mobilenet_True_Augumented'
+    
     out_dir=os.path.join(base,model_out)
     os.makedirs(out_dir, exist_ok=True)
 
