@@ -15,19 +15,19 @@ def train_epoch(model, dataloader, optimizer, loss_function):
     loss = AverageMeter()
 
     # Training
-    for data_batch, labels_batch in train_loader: #(16,1,28,28) and (16)
+    for data_batch, labels_batch in dataloader: #(16,1,28,28) and (16)
         # load data to Device  
         data_batch, labels_batch = data_batch.to(DEVICE), labels_batch.to(DEVICE)
         # model output
-        output = model(src)
+        output = model(data_batch)
         _, output_batch = torch.max(output,1)
         # loss and accuracy
         batch_loss = loss_function(output, labels_batch)
         batch_accuracy = get_accuracy(output_batch,labels_batch)
         # update parameters
         model.zero_grad()
-        Lc.backward()
-        model_opt.step()
+        batch_loss.backward()
+        optimizer.step()
         # update loss and accuracy meter
         accuracy.update(batch_accuracy)
         loss.update(batch_loss.item())

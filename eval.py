@@ -2,6 +2,8 @@ import torch
 from data import get_dataloaders 
 from utils import AverageMeter,get_accuracy
 from data.transforms import transform_train,transform_dummy,transform_test 
+from pathlib import Path
+
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 cams=['Left_CAM.csv','Right_CAM.csv','Below_CAM.csv',"Front_CAM.csv"]
@@ -13,7 +15,6 @@ model_out='mobilenet_True_Augumented'
 base='/raid/shreyansh_s_ch/saved_models'
 num_classes = 13
 
-@torch.no_grad
 def evaluate(model,dataloader,loss_function,need_loss=False):
     """
         Returns:
@@ -21,30 +22,32 @@ def evaluate(model,dataloader,loss_function,need_loss=False):
     """
     # Enable evaluation mode
     model.eval()
-    # Running average class
-    accuracy = AverageMeter()
-    if need_loss:
-        loss = AverageMeter()
-
-    # Evaluation
-    for data_batch, labels_batch in dataloader:
-
-        # load data to Device
-        data_batch, labels_batch = data_batch.to(DEVICE), labels_batch.to(DEVICE)
-        # model output 
-        output = model(data_batch)
-        _, output_batch = torch.max(output, 1)
-        # loss and accuracy
+    with torch.no_grad():
+        # Running average class
+        accuracy = AverageMeter()
         if need_loss:
-            batch_loss = loss_function(output, labels_batch)
-        batch_accuracy = get_accuracy(out_batch,labels_batch)
-        # update loss and accuracy meter
-        accuracy.update(batch_accuracy)
-        if need_loss:
-            loss.update(batch_loss.item())
+            loss = AverageMeter()
+
+        # Evaluation
+        for data_batch, labels_batch in dataloader:
+
+            # load data to Device
+            data_batch, labels_batch = data_batch.to(DEVICE), labels_batch.to(DEVICE)
+            # model output 
+            output = model(data_batch)
+            _, output_batch = torch.max(output, 1)
+            # loss and accuracy
+            if need_loss:
+                batch_loss = loss_function(output, labels_batch)
+            batch_accuracy = get_accuracy(output_batch,labels_batch)
+            # update loss and accuracy meter
+            accuracy.update(batch_accuracy)
+            if need_loss:
+                loss.update(batch_loss.item())
     if need_loss:
         return accuracy.avg, loss.avg
-    else return accuracy.avg
+    else:
+        return accuracy.avg
 
 if __name__ == '__main__':
 

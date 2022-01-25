@@ -22,7 +22,7 @@ import models.dann as dann
 from data.HGMDataset import HGM
 from data.transforms import transform_train,transform_dummy,transform_test  
 from trainer.classification import train_epoch
-
+from eval import evaluate
 
 import wandb
 import gc
@@ -82,7 +82,7 @@ def train_and_evaluate():
 
     for epoch in range(1,max_epoch+1):
         #Training
-        source_train_accuracy, source_train_loss = train_epoch(model,train_loaders,model_optimizer,model_loss_fn,need_loss=True)
+        source_train_accuracy, source_train_loss = train_epoch(model,train_loaders,model_optimizer,model_loss_fn)
         #Evaluate
         source_test_accuracy, source_test_loss = evaluate(model,test_loaders,model_loss_fn,need_loss=True)
         target_train_accuracy = evaluate(model,target_train,model_loss_fn)
@@ -103,7 +103,8 @@ def train_and_evaluate():
                 'scheduler': model_scheduler.state_dict(),
             }, is_best, out_dir)
         # Wandb loss
-        wandb.log({"loss_classifier":source_train_loss.avg,
+        
+        wandb.log({"loss_classifier":source_train_loss,
                     "Accuracy_source_test":source_test_accuracy,
                     "Accuracy_target_test":target_test_accuracy,
                     "Accuracy_source_train":source_train_accuracy,
