@@ -86,7 +86,11 @@ def train_and_evaluate(pre,model_naMe):
 
     model=modellls[model_naMe](pretrained=pre,progress=True,num_classes=13).to(DEVICE)
     num_parameters(model)
-    
+    if pretrained:
+        for param in model.parameters():
+            param.requires_grad = False
+        model.classifier
+        
     model_loss_fn = nn.CrossEntropyLoss()
     model_optimizer = torch.optim.Adam(model.parameters(),lr=lr,weight_decay = 0.001)
     model_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(model_optimizer,mode='min',factor = 0.1, patience=10,threshold =1e-5)
