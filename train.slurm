@@ -7,9 +7,9 @@
 #SBATCH --gres=gpu:1 
 
 #SBATCH --time=2-23:00:00            
-#SBATCH --job-name=test 
+#SBATCH --job-name=all_m 
 
-#SBATCH --output=out_files/test.out
+#SBATCH --output=out_files/all_m.out
 source activate da
 nvidia-smi
 echo $CUDA_VISIBLE_DEVICES

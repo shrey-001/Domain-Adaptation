@@ -17,6 +17,7 @@ from torchvision.io import read_image
 import torch.optim as optim
 from utils import AverageMeter, num_parameters, get_lambda, save_checkpoint
 from models.mobilenetv2 import mobilenet_v2
+from models.mobilenetv3 import *
 
 import models.dann as dann
 from data.HGMDataset import HGM
@@ -28,6 +29,8 @@ import wandb
 import gc
 
 from pathlib import Path
+
+from models.resnet_c import *
 
 
 from data import get_dataloaders
@@ -47,7 +50,7 @@ cams=['Left_CAM.csv','Right_CAM.csv','Below_CAM.csv',"Front_CAM.csv"]
 ############        VARIABLE        ########################
 ############################################################    
 batch_size=16
-max_epoch=1
+max_epoch=300
 lr=1e-3
 num_classes=13
 MODEL_NAME = 'DANN'
@@ -60,21 +63,33 @@ base='/raid/shreyansh_s_ch/saved_models'
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 
-wandb.login(key=wandb_key)
-config={"model_name":MODEL_NAME,"Batch_size":batch_size,"lr":lr}
-wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name=MODEL_NAME,config=config)
 
-def train_and_evaluate():
 
-    out_dir=os.path.join(base,model_out)
+modellls = {'resnet18': resnet18,
+            'resnet50': resnet50,
+            'mobilenetv3-small': mobilenet_v3_small,
+            'mobilenetv3-large': mobilenet_v3_large,
+            'mobilenetv2': mobilenet_v2}
+
+def train_and_evaluate(pre,model_naMe):
+    wandb.login(key=wandb_key)
+    config={"model_name":model_naMe,"Batch_size":batch_size,"lr":lr}
+
+    model_wandb = model_naMe+"_"+str(pre)
+
+    run = wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name=model_wandb,config=config)
+
+    out_dir=os.path.join(base,model_wandb)
 
     train_loaders, test_loaders = get_dataloaders(cams[0],train_dir,val_dir,train_transform=transform_train,val_transform=transform_test) 
     target_train, target_test = get_dataloaders(cams[1],train_dir,val_dir,train_transform=transform_test,val_transform=transform_test)
 
-    model=mobilenet_v2(pretrained=True,progress=True,num_classes=num_classes).to(DEVICE)
+    model=modellls[model_naMe](pretrained=pre,progress=True,num_classes=13).to(DEVICE)
+    num_parameters(model)
+    
     model_loss_fn = nn.CrossEntropyLoss()
-    model_optimizer = torch.optim.Adam(model.parameters())
-    model_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(model_optimizer,mode='min',factor = 0.1, patience=10)
+    model_optimizer = torch.optim.Adam(model.parameters(),lr=lr,weight_decay = 0.001)
+    model_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(model_optimizer,mode='min',factor = 0.1, patience=10,threshold =1e-5)
 
     best_acc = 0
 
@@ -103,18 +118,26 @@ def train_and_evaluate():
                 'scheduler': model_scheduler.state_dict(),
             }, is_best, out_dir)
         # Wandb loss
+        print('Epoch: {}/{}, C Loss: {:.4f}, C Accuracy: {:.4f},'.format(
+                                                                                epoch, 
+                                                                                max_epoch, 
+                                                                                source_train_loss,
+                                                                                source_train_accuracy, 
+                                                                                ))
+
         
         wandb.log({"loss_classifier":source_train_loss,
                     "Accuracy_source_test":source_test_accuracy,
                     "Accuracy_target_test":target_test_accuracy,
                     "Accuracy_source_train":source_train_accuracy,
                     "Accuracy_target_train":target_train_accuracy})
+    run.finish()
     
 def mobilenet_simple_cla():
     
     out_dir=os.path.join(base,model_out)
 
-    wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-mobile2",config=config)
+    run = wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-mobile2",config=config)
 
     model=mobilenet_v2(pretrained=True,progress=True,num_classes=num_classes).to(DEVICE)
     num_parameters(model)
@@ -188,6 +211,7 @@ def mobilenet_simple_cla():
 
                     
         model.train()
+    run.finish()
         
 def simple_classification():
     wandb.init(project="domain_adaptation",entity="shreyanshsaxena",name="simple-dummy",config=config)
@@ -407,4 +431,12 @@ def DANN():
         C.train()
 
 # simple_classification()
-train_and_evaluate()
+
+
+train_and_evaluate(pre=True,model_naMe="resnet18")
+train_and_evaluate(pre=False,model_naMe="resnet18")
+train_and_evaluate(pre=True,model_naMe="resnet50")
+train_and_evaluate(pre=False,model_naMe="resnet50")
+train_and_evaluate(pre=False,model_naMe="mobilenetv3-small")
+train_and_evaluate(pre=True,model_naMe="mobilenetv3-small")
+

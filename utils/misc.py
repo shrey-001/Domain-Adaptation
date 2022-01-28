@@ -11,18 +11,19 @@ logger = logging.getLogger(__name__)
 def save_checkpoint(state, is_best, checkpoint):
     filepath = os.path.join(checkpoint, 'last.pth.tar')
     if not os.path.exists(checkpoint):
-        print("Checkpoint Directory does not exist! Making directory {}".format(checkpoint))
+        #print("Checkpoint Directory does not exist! Making directory {}".format(checkpoint))
         os.mkdir(checkpoint)
     else:
-        print("Checkpoint Directory exists! ")
+        #print("Checkpoint Directory exists! ")
+        pass
     torch.save(state, filepath)
     if is_best:
         shutil.copyfile(filepath, os.path.join(checkpoint, 'best.pth.tar'))
 def load_checkpoint(checkpoint, model, optimizer=None):
     if not os.path.exists(checkpoint):
         raise("File doesn't exist {}".format(checkpoint))
-    checkpoint = torch.load(checkpoint)
-    model.load_state_dict(checkpoint['state_dict'])
+    checkpoint = torch.load(checkpoint,map_location = "cpu")
+    model.load_state_dict(checkpoint['state_dict'],strict=False)
 
     if optimizer:
         optimizer.load_state_dict(checkpoint['optim_dict'])

@@ -196,7 +196,7 @@ def mobilenet_v2(pretrained: bool = False, progress: bool = True, **kwargs: Any)
         model = MobileNetV2(**kwargs)
     if pretrained:
         model = MobileNetV2()
-        print(model)
+        #print(model)
         state_dict = load_state_dict_from_url(model_urls['mobilenet_v2'],
                                               progress=progress)
         model.load_state_dict(state_dict)

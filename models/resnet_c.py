@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 
-from .._internally_replaced_utils import load_state_dict_from_url
-from ..utils import _log_api_usage_once
+from torch.utils.model_zoo import load_url as load_state_dict_from_url
+#from torchvision.utils import _log_api_usage_once
 
 
 __all__ = [
@@ -174,7 +174,7 @@ class ResNet(nn.Module):
         norm_layer: Optional[Callable[..., nn.Module]] = None,
     ) -> None:
         super().__init__()
-        _log_api_usage_once(self)
+        #_log_api_usage_once(self)
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
@@ -291,10 +291,14 @@ def _resnet(
     progress: bool,
     **kwargs: Any,
 ) -> ResNet:
-    model = ResNet(block, layers, **kwargs)
+    if not pretrained:
+        model = ResNet(block, layers, **kwargs)
     if pretrained:
+        model = ResNet(block, layers)
         state_dict = load_state_dict_from_url(model_urls[arch], progress=progress)
         model.load_state_dict(state_dict)
+        model.fc = nn.Linear(512*block.expansion,kwargs['num_classes'])
+
     return model
 
 

@@ -4,3 +4,5 @@ data/csv_list
 *.pyc
 __pycache__/
 train.slurm
+datasets/
+train.slurm
